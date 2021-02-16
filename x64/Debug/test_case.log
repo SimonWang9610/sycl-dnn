@@ -1,0 +1,12 @@
+﻿test_case.cpp(13,18): : warning : unused variable 'alpha' [-Wunused-variable]
+          constexpr float alpha = 1;
+                          ^
+  1 warning generated.
+test_case.cpp(13,18): : warning : unused variable 'alpha' [-Wunused-variable]
+          constexpr float alpha = 1;
+                          ^
+  1 warning generated.
+test_case.cpp(13,18): : warning : unused variable 'alpha' [-Wunused-variable]
+          constexpr float alpha = 1;
+                          ^
+  1 warning generated.
