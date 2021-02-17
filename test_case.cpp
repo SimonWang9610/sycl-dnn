@@ -13,7 +13,7 @@ int main() {
 	constexpr float alpha = 1;
 	queue Q{ cpu_selector{} };
 
-	std::vector<int> config = { 5, 4, 4, 4 };
+	std::vector<int> config = { 6, 5, 4, 3 };
 	float* output = malloc_shared<float>(config.back() * batch, Q);
 	float* target_device = malloc_device<float>(config.back() * batch, Q);
 

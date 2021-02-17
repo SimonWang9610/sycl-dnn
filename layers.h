@@ -79,7 +79,6 @@ public:
 
 		for (int i = layers.size() - 1; i >= 0; i--) {
 			layers[i].update(diff, alpha, Q);
-			std::cout << "^^^^^Backward..." << std::endl;
 		}
 		free(diff, Q);
 		std::cout << "COMPLETED!" << std::endl;

@@ -3,48 +3,6 @@
 #include <math.h>
 
 using namespace cl::sycl;
-template<typename T, const int SIZE>
-class Multiply {
-private:
-	T* left;
-	T* right;
-	T* result;
-	const int M;
-	const int N;
-	const int K;
-	bool transpose;
-public:
-	Multiply(T* l, T* r, T* s, int m, int n, int k, bool t) : left(l), right(r), result(s),
-		M(m), N(n), K(k), transpose(t) {}
-
-	void operator()(group<2> group) const {
-		T tile[SIZE];
-
-		int MID_LEFT = transpose ? M : N;
-		int MID_RIGHT = transpose ? N : K;
-
-		for (int k = 0; k < MID_LEFT; k += SIZE) {
-			group.parallel_for_work_item([&](h_item<2> item) {
-				int m = item.get_global_id(0);
-				int i = item.get_local_id(1);
-				int index = transpose ? (k + i) * N + m : m * N + k + i;
-				tile[i] = (k + i < MID_LEFT) ? left[index] : 0;
-			});
-
-			group.parallel_for_work_item([&](h_item<2> item) {
-				int m = item.get_global_id(0);
-				int n = item.get_global_id(1);
-
-				for (int kk = 0; kk < SIZE; kk++) {
-					int position = transpose ? (k + kk) * K + n : n * K + k + kk;
-					// out << "right [" << position << "]: " << right[position] << endl;
-
-					result[m * K + n] += (k + kk < MID_RIGHT) ? tile[kk] * right[position] : 0;
-				}
-			});
-		}
-	}
-};
 
 template<typename T, bool align>
 class Substract {
@@ -113,5 +71,77 @@ public:
 
 			matrix[m * N + n] = exp(matrix[m * N + n]) / sums[n];
 		});
+	}
+};
+
+
+template<typename T, const int SIZE>
+class MultiplyT {
+private:
+	T* left; // [M, K], read as [M, K]
+	T* right; // [N, K], read as [K, N]
+	T* result; // [M, N]
+	const int M;
+	const int N;
+	const int K;
+public:
+	MultiplyT(T* l, T* r, T* s, int m, int n, int k) : left(l), right(r), result(s),
+		M(m), N(n), K(k) {}
+
+	void operator()(group<2> group) const {
+		T tile[SIZE];
+
+		for (int k = 0; k < K; k += SIZE) {
+			group.parallel_for_work_item([&](h_item<2> item) {
+				int m = item.get_global_id(0);
+				int i = item.get_local_id(1);
+				tile[i] = (k + i < K) ? left[(m * K)  + k + i] : 0;
+			});
+
+			group.parallel_for_work_item([&](h_item<2> item) {
+				int m = item.get_global_id(0);
+				int n = item.get_global_id(1);
+
+				for (int kk = 0; kk < SIZE; kk++) {
+					result[m * N + n] += (k + kk < K) ? tile[kk] * right[n * K + k + kk] : 0;
+				}
+				
+			});
+		}
+	}
+};
+
+template<typename T, const int SIZE>
+class TMultiply {
+private:
+	T* left; // [M, N], read as [N, M]
+	T* right; // [M, K], read as [M, K]
+	T* result; // [N, K]
+	const int M;
+	const int N;
+	const int K;
+public:
+	TMultiply(T* l, T* r, T* s, int m, int n, int k) : left(l), right(r), result(s),
+		M(m), N(n), K(k) {}
+
+	void operator()(group<2> group) const {
+		T tile[SIZE];
+
+		for (int k = 0; k < M; k += SIZE) {
+			group.parallel_for_work_item([&](h_item<2> item) {
+				int m = item.get_global_id(0);
+				int i = item.get_local_id(1);
+				tile[i] = (k + i < M) ? left[(k + i) * N + m] : 0;
+			});
+
+			group.parallel_for_work_item([&](h_item<2> item) {
+				int m = item.get_global_id(0);
+				int n = item.get_global_id(1);
+
+				for (int kk = 0; kk < SIZE; kk++) {
+					result[m * K + n] += (k + kk < M) ? tile[kk] * right[(k + kk) * K + n] : 0;
+				}
+			});
+		}
 	}
 };

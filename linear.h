@@ -23,6 +23,9 @@ public:
 		dz = malloc_device<T>(N * K, Q);
 		dw = malloc_device<T>(M * N, Q);
 
+		Q.memset(dz, 0, N * K * sizeof(T)).wait();
+		Q.memset(dw, 0, M * N * sizeof(int)).wait();
+
 		if (dz == nullptr) {
 			std::cout << "allocate failed: " << dz << std::endl;
 		}
@@ -82,7 +85,7 @@ public:
 
 		auto e2 = Q.submit([&](handler& cgh) {
 			// std::cout << "compute: dz..." << std::endl;
-			Multiply<T, GROUP_SIZE> mat(weight, diff, dz, M, N, K, true);
+			TMultiply<T, GROUP_SIZE> mat(weight, diff, dz, M, N, K);
 			cgh.parallel_for_work_group(range<2>{ N, K / GROUP_SIZE }, { 1, GROUP_SIZE }, mat);
 		});
 
@@ -90,7 +93,7 @@ public:
 		auto e3 = Q.submit([&](handler& cgh) {
 			// std::cout << "compute dw..." << std::endl;
 			// std::cout << input << std::endl;
-			Multiply<T, GROUP_SIZE> mat(diff, input, dw, M, N, K, false);
+			MultiplyT<T, GROUP_SIZE> mat(diff, input, dw, M, N, K);
 			cgh.parallel_for_work_group(range<2>{ M, N / GROUP_SIZE }, { 1, GROUP_SIZE }, mat);
 		});
 
@@ -135,6 +138,9 @@ public:
 		std::cout << "--------------------" << std::endl;
 
 		free(diff, Q);
+		diff = malloc_device<T>(N * K, Q);
+		if (diff == nullptr) std::cout << "null pointer" << std::endl;
+
 		Q.memcpy(diff, dz, N * K * sizeof(T)).wait();
 		Q.memset(input, 0, N * K * sizeof(T)).wait();
 		Q.memset(dw, 0, M * N * sizeof(T)).wait();
