@@ -4,6 +4,7 @@
 
 using namespace cl::sycl;
 
+// left -= scale * right
 template<typename T, bool align>
 class Substract {
 private:
@@ -44,13 +45,14 @@ public:
 //	3> sums[m] += exp(matrix[n * N + k])
 //	4> matrix[m * N + n] = exp(matrix[m * N + n]) / sums[m]
 
-template<typename T, const int N>
-class Softmax {
+template <typename T, const int N>
+class Softmax
+{
 private:
 	T* matrix;
 	const int M;
 public:
-	Softmax(T* mat, int m) : matrix(mat), M(m) {}
+	Softmax(T *mat, int m) : matrix(mat), M(m) {}
 	void operator()(group<2> group) const {
 		T sums[N] = { 0 };
 
@@ -74,7 +76,7 @@ public:
 	}
 };
 
-
+// result = left.dot(right.t())
 template<typename T, const int SIZE>
 class MultiplyT {
 private:
@@ -111,18 +113,21 @@ public:
 	}
 };
 
+// result = left.t().dot(right) * derivate
 template<typename T, const int SIZE>
 class TMultiply {
 private:
 	T* left; // [M, N], read as [N, M]
 	T* right; // [M, K], read as [M, K]
 	T* result; // [N, K]
+	T *derivate;
 	const int M;
 	const int N;
 	const int K;
 public:
-	TMultiply(T* l, T* r, T* s, int m, int n, int k) : left(l), right(r), result(s),
-		M(m), N(n), K(k) {}
+	TMultiply(T *l, T *r, T *s, T *d, int m, int n, int k) : left(l), right(r), result(s), derivate(d),
+															 M(m),
+															 N(n), K(k) {}
 
 	void operator()(group<2> group) const {
 		T tile[SIZE];
@@ -143,5 +148,12 @@ public:
 				}
 			});
 		}
+
+		group.parallel_for_work_item([&](h_item<2> item) {
+			int m = item.get_global_id(0);
+			int n = item.get_global_id(1);
+			int scale = (derivate[m * K + n] > 0) ? 1 : 0;
+			result[m * K + n] *= scale;
+		});
 	}
 };

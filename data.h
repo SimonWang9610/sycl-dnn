@@ -34,6 +34,7 @@ struct variable {
 	}
 };
 
+// initialize parameters of each Linear
 template<typename T>
 std::vector<variable<T>> init(std::vector<int> config) {
 	std::vector<variable<T>> params;
@@ -45,6 +46,7 @@ std::vector<variable<T>> init(std::vector<int> config) {
 	return params;
 }
 
+// create random input for testing
 template<typename T>
 T* createInput(size_t row, size_t col) {
 	std::default_random_engine generator;

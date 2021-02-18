@@ -3,6 +3,7 @@
 #include "linear.h"
 
 using namespace cl::sycl;
+class Difference;
 
 template<typename T, const int SIZE, const int BATCH>
 class Layer {
@@ -13,20 +14,27 @@ public:
 	T* output;
 
 	Layer(std::vector<int> config, T* o, queue& Q) : neurons(config), output(o) {
-		for (int i = 0; i < config.size(); i++) {
-
+		// allocate memory for inputs of each Linear
+		for (int i = 0; i < config.size(); i++)
+		{
 			inputs.push_back(malloc_device<T>(BATCH * config[i], Q));
 		}
 
+		// set inputs[i-1] and intpus[i] as 'input' and 'result' of Linear
+		// and 'weight' has shape [config[i], config[i-1]], 'bias' has shape [config[i]]
+		// 'end' is used to determine whether the current Linear is the last one
 		for (int i = 1; i < config.size(); i++) {
-
+			int end = (i == config.size() - 1) ? 1 : 0;
 			auto linear = Linear<T, SIZE>(inputs[i - 1], inputs[i],
-				config[i], config[i - 1], BATCH, Q);
+										  config[i], config[i - 1], BATCH, end, Q);
 			layers.push_back(linear);
 		}
 	}
 
 	void copyToDevice(std::vector<variable<T>> parameters, T* des, T* src, int n, queue& Q) {
+		// explicitly copy parameters (weight and bias) of Linear to Device
+		// des is used to store the 'target_device`
+		// src is used to store the 'target_host`
 		vector_class<event> events;
 
 		for (int i = 0; i < layers.size(); i++) {
@@ -43,6 +51,7 @@ public:
 	}
 
 	void forward(T* x, queue& Q) const {
+		// copy input to Device
 		Q.memcpy(inputs[0], x, neurons[0] * BATCH * sizeof(T)).wait();
 		int i;
 
@@ -51,29 +60,37 @@ public:
 				cgh.parallel_for_work_group(range<2>{neurons[i], BATCH / SIZE}, { 1, SIZE }, layers[i - 1]);
 			}).wait();
 		}
-		/*Q.submit([&](handler& cgh) {
-			Softmax<T, BATCH> softmax(inputs[i - 1], neurons[i - 1]);
-			cgh.parallel_for_work_group(range<2>{neurons[i-1] / SIZE, BATCH}, { SIZE, 1 }, softmax);
-		}).wait();*/
 
+		// Q.submit([&](handler& cgh) {
+		// 	Softmax<T, BATCH> softmax(inputs[i - 1], neurons[i - 1]);
+		// 	cgh.parallel_for_work_group(range<2>{neurons[i-1] / SIZE, BATCH}, { SIZE, 1 }, softmax);
+		// }).wait();
+
+		// copy inputs.back() to Host
 		Q.memcpy(output, inputs[i - 1], BATCH * neurons[i - 1] * sizeof(T)).wait();
+		std::cout << "complete forward!" << std::endl;
 	}
 
 	void difference(T* target, queue& Q) const {
+		// compute the delta between the final output and target_device
 		T* out = inputs.back();
 
-		Q.submit([&](handler& cgh) {
-			cgh.parallel_for_work_group(range<2>{neurons.back(), BATCH}, { 1, SIZE }, [=](group<2> group) {
-				group.parallel_for_work_item([&](h_item<2> item) {
-					int m = item.get_global_id(0);
-					int n = item.get_global_id(1);
-					out[m * BATCH + n] -= target[m * BATCH + n];
-				});
-			});
-		}).wait();
+		Q.submit([&](handler &cgh) {
+			 cgh.parallel_for_work_group<class Difference>(range<2>{neurons.back(), BATCH}, {1, SIZE}, [=](group<2> group) {
+				 group.parallel_for_work_item([&](h_item<2> item) {
+					 int m = item.get_global_id(0);
+					 int n = item.get_global_id(1);
+					 out[m * BATCH + n] -= target[m * BATCH + n];
+				 });
+			 });
+		 }).wait();
+		std::cout << "complete difference!" << std::endl;
 	}
 
 	void backward(T alpha, queue& Q) {
+		// update the parameters of each Linear
+		// use 'diff' as temporay variable to store the delta calculated at each Linear
+		// 'diff' will be change in Linear.update()
 		T* diff = malloc_device<T>(neurons.back() * BATCH, Q);
 		Q.memcpy(diff, inputs.back(), neurons.back() * BATCH * sizeof(T)).wait();
 
@@ -85,6 +102,7 @@ public:
 	}
 
 	void reset(queue& Q) {
+		// set all inputs as 0 after backwarding
 		vector_class<event> events;
 
 		for (int i = 0; i < inputs.size(); i++) {

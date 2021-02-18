@@ -10,8 +10,8 @@ using namespace cl::sycl;
 int main() {
 	constexpr int SIZE = 1;
 	constexpr int batch = 2;
-	constexpr float alpha = 1;
-	queue Q{ cpu_selector{} };
+	constexpr float alpha = 0.01;
+	queue Q{gpu_selector{}};
 
 	std::vector<int> config = { 6, 5, 4, 3 };
 	float* output = malloc_shared<float>(config.back() * batch, Q);
@@ -25,16 +25,17 @@ int main() {
 	net.copyToDevice(parameters, target_device, target_host, config.back() * batch, Q);
 	net.print();
 
-	try {
-		net.forward(input, Q);
-		printOutput<float>(output, config.back(), batch);
-		net.difference(target_device, Q);
-		net.backward(alpha, Q);
-		net.reset(Q);
-	}
-	catch (exception const& e) {
-		std::cout << e.what() << std::endl;
-	}
+		try {
+			net.forward(input, Q);
+			printOutput<float>(output, config.back(), batch);
+			net.difference(target_device, Q);
+			net.backward(alpha, Q);
+			net.reset(Q);
+		}
+		catch (exception const& e) {
+			std::cout << e.what() << std::endl;
+			return 2;
+		}
 
 	return 0;
 }

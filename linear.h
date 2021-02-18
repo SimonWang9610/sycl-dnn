@@ -3,6 +3,9 @@
 #include "operations.h"
 #include "data.h"
 using namespace cl::sycl;
+class TestDw;
+class TestDz;
+class TestDiff;
 
 template<typename T, const int GROUP_SIZE>
 class Linear {
@@ -16,15 +19,17 @@ public:
 	const int M;
 	const int N;
 	const int K;
+	const int END;
 
-	Linear(T* x, T* r, int m, int n, int k, queue& Q) : input(x), result(r), M(m), N(n), K(k) {
+	Linear(T *x, T *r, int m, int n, int k, int e, queue &Q) : input(x), result(r), M(m), N(n), K(k), END(e)
+	{
 		weight = malloc_device<T>(M * N, Q);
 		bias = malloc_device<T>(M, Q);
 		dz = malloc_device<T>(N * K, Q);
 		dw = malloc_device<T>(M * N, Q);
 
 		Q.memset(dz, 0, N * K * sizeof(T)).wait();
-		Q.memset(dw, 0, M * N * sizeof(int)).wait();
+		Q.memset(dw, 0, M * N * sizeof(T)).wait();
 
 		if (dz == nullptr) {
 			std::cout << "allocate failed: " << dz << std::endl;
@@ -53,12 +58,15 @@ public:
 			});
 		}
 
-		group.parallel_for_work_item([&](h_item<2> item) {
+		if (END == 0)
+		{
+			group.parallel_for_work_item([&](h_item<2> item) {
 			int m = item.get_global_id(0);
 			int n = item.get_global_id(1);
 
 			result[m * K + n] = (result[m * K + n] > 0) ? result[m * K + n] : 0;
-		});
+			});
+		}
 	}
 
 	vector_class<event> copyToDevice(variable<T>& v, queue& Q) const {
@@ -74,9 +82,7 @@ public:
 
 	void update(T* diff, T alpha, queue& Q) {
 		T scale = alpha / K;
-		std::cout << "dz : " << dz << ", dw: " << dw << ", diff: " << diff << std::endl;
 
-	
 		auto e1 = Q.submit([&](handler& cgh) {
 			// std::cout << "update bias..." << std::endl;
 			Substract<T, false> sub(bias, diff, scale, M, 1);
@@ -85,7 +91,7 @@ public:
 
 		auto e2 = Q.submit([&](handler& cgh) {
 			// std::cout << "compute: dz..." << std::endl;
-			TMultiply<T, GROUP_SIZE> mat(weight, diff, dz, M, N, K);
+			TMultiply<T, GROUP_SIZE> mat(weight, diff, dz, input, M, N, K);
 			cgh.parallel_for_work_group(range<2>{ N, K / GROUP_SIZE }, { 1, GROUP_SIZE }, mat);
 		});
 
@@ -111,7 +117,7 @@ public:
 		Q.submit([&](handler& cgh) {
 			T* temp = dz;
 			stream out(1024, 256, cgh);
-			cgh.parallel_for(range<1>{N * K}, [=](id<1> i) {
+			cgh.parallel_for<class TestDz>(range<1>{N * K}, [=](id<1> i) {
 				out << i << ": " << temp[i] << " ";
 			});
 		}).wait();
@@ -120,7 +126,7 @@ public:
 		Q.submit([&](handler& cgh) {
 			T* temp = dw;
 			stream out(1024, 256, cgh);
-			cgh.parallel_for(range<1>{M * N}, [=](id<1> i) {
+			cgh.parallel_for<class TestDw>(range<1>{M * N}, [=](id<1> i) {
 				out << i << ": " << temp[i] << " ";
 			});
 		}).wait();
@@ -130,7 +136,7 @@ public:
 		Q.submit([&](handler& cgh) {
 			T* temp = diff;
 			stream out(1024, 256, cgh);
-			cgh.parallel_for(range<1>{M * K}, [=](id<1> i) {
+			cgh.parallel_for<class TestDiff>(range<1>{M * K}, [=](id<1> i) {
 				out << i << ": " << temp[i] << " ";
 			});
 		}).wait();
